@@ -8,11 +8,13 @@
 import Foundation
 import CoreBluetooth
 import Combine
+import UIKit
 
 class BLEServerManager: NSObject, ObservableObject, CBPeripheralManagerDelegate {
     @Published var isAdvertising = false
     @Published var statusMessage = "Inicializálás..."
     @Published var receivedData: String = ""
+    @Published var keypass: String = ""
 
     private var peripheralManager: CBPeripheralManager!
     private var txCharacteristic: CBMutableCharacteristic?
@@ -34,14 +36,14 @@ class BLEServerManager: NSObject, ObservableObject, CBPeripheralManagerDelegate 
             type: BLEUUID.txUUID, // Mac TX -> iOS RX (Write)
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable]
+            permissions: [.writeEncryptionRequired]
         )
 
         let txChar = CBMutableCharacteristic(
             type: BLEUUID.rxUUID, // Mac RX -> iOS TX (Notify)
             properties: [.notify, .read],
             value: nil,
-            permissions: [.readable]
+            permissions: [.readEncryptionRequired]
         )
         self.txCharacteristic = txChar
 
@@ -117,6 +119,15 @@ class BLEServerManager: NSObject, ObservableObject, CBPeripheralManagerDelegate 
             return
         }
 
+        // keypass verification if keypass is set
+        if !keypass.isEmpty && genericMessage.keypass != keypass {
+            DispatchQueue.main.async {
+                self.receivedData = "Biztonsági hiba:\nÉrvénytelen kulcs (keypass) érkezett."
+            }
+            sendResponse(id: genericMessage.id, action: "status", status: .error, code: 401, message: "Unauthorized: Invalid keypass")
+            return
+        }
+
         switch genericMessage.action {
         case "send_sms":
             do {
@@ -131,21 +142,44 @@ class BLEServerManager: NSObject, ObservableObject, CBPeripheralManagerDelegate 
                 }
                 sendResponse(id: genericMessage.id, action: "status", status: .error, code: 400, message: "Invalid payload")
             }
+        case "make_call":
+            do {
+                let message = try BLECodec.decode(data, as: BLEMessage<SendSmsPayload>.self)
+                let phoneNumber = message.payload.phone.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                if let url = URL(string: "telprompt://\(phoneNumber)") {
+                    DispatchQueue.main.async {
+                        self.receivedData = "Hívás indítása: \(message.payload.phone)"
+                        UIApplication.shared.open(url, options: [:], completionHandler: { success in
+                            if success {
+                                self.sendResponse(id: message.id, action: "status", status: .ok, code: 200, message: "Dialing")
+                            } else {
+                                self.sendResponse(id: message.id, action: "status", status: .error, code: 500, message: "Failed to open telprompt")
+                            }
+                        })
+                    }
+                } else {
+                    sendResponse(id: message.id, action: "status", status: .error, code: 400, message: "Invalid phone number format")
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.receivedData = "Hiba a make_call payload dekódolásakor."
+                }
+                sendResponse(id: genericMessage.id, action: "status", status: .error, code: 400, message: "Invalid payload")
+            }
         case "get_contacts":
             DispatchQueue.main.async {
                 self.receivedData = "Kontakt lekérés kérés érkezett."
             }
-            let contactList = ContactListPayload(contacts: [
-                Contact(name: "Papp Zoltán", numbers: ["+36301234567"]),
-                Contact(name: "Teszt Elek", numbers: ["+36209876543"])
-            ])
-            let response = BLEMessage<ContactListPayload>(
-                id: genericMessage.id,
-                type: .response,
-                action: "contacts",
-                payload: contactList
-            )
-            sendResponseToMac(response)
+            ContactHelper.fetchContacts { contacts in
+                let contactList = ContactListPayload(contacts: contacts)
+                let response = BLEMessage<ContactListPayload>(
+                    id: genericMessage.id,
+                    type: .response,
+                    action: "contacts_list",
+                    payload: contactList
+                )
+                self.sendResponseToMac(response)
+            }
         default:
             DispatchQueue.main.async {
                 self.receivedData = "Ismeretlen parancs: \(genericMessage.action)"

@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import CoreBluetooth
+import UIKit
 
 public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDelegate {
     @Published public var isAdvertising = false
@@ -33,14 +34,14 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
             type: BLEUUID.txUUID, // Mac TX -> iOS RX (Write)
             properties: [.write, .writeWithoutResponse],
             value: nil,
-            permissions: [.writeable]
+            permissions: [.writeEncryptionRequired]
         )
 
         let txChar = CBMutableCharacteristic(
             type: BLEUUID.rxUUID, // Mac RX -> iOS TX (Notify)
             properties: [.notify, .read],
             value: nil,
-            permissions: [.readable]
+            permissions: [.readEncryptionRequired]
         )
         self.txCharacteristic = txChar
 
@@ -58,9 +59,20 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
     }
 
     public func stopAdvertising() {
-        peripheralManager.stopAdvertising()
-        isAdvertising = false
-        addLog("BLE hirdetés leállítva.")
+        // Send server_stopping event to Mac before shutting down services
+        let notifyMessage = BLEMessage<EmptyPayload>(
+            type: .event,
+            action: "server_stopping",
+            payload: EmptyPayload()
+        )
+        sendResponseToMac(notifyMessage)
+        
+        // Short delay to allow the BLE characteristic update to go through before stopping advertising
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.peripheralManager.stopAdvertising()
+            self.isAdvertising = false
+            self.addLog("BLE hirdetés leállítva.")
+        }
     }
 
     // MARK: - CBPeripheralManagerDelegate
@@ -114,19 +126,40 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
                 addLog("Nem sikerült dekódolni a send_sms payload-ot.")
                 sendResponse(id: genericMessage.id, action: "status", status: .error, code: 400, message: "Invalid payload")
             }
+        case "make_call":
+            do {
+                let message = try BLECodec.decode(data, as: BLEMessage<SendSmsPayload>.self)
+                let phoneNumber = message.payload.phone.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                if let url = URL(string: "telprompt://\(phoneNumber)") {
+                    DispatchQueue.main.async {
+                        self.addLog("Hívás indítása BLE-n: \(message.payload.phone)")
+                        UIApplication.shared.open(url, options: [:], completionHandler: { success in
+                            if success {
+                                self.sendResponse(id: message.id, action: "status", status: .ok, code: 200, message: "Dialing")
+                            } else {
+                                self.sendResponse(id: message.id, action: "status", status: .error, code: 500, message: "Failed to open telprompt")
+                            }
+                        })
+                    }
+                } else {
+                    sendResponse(id: message.id, action: "status", status: .error, code: 400, message: "Invalid phone number format")
+                }
+            } catch {
+                addLog("Nem sikerült dekódolni a make_call payload-ot.")
+                sendResponse(id: genericMessage.id, action: "status", status: .error, code: 400, message: "Invalid payload")
+            }
         case "get_contacts":
             addLog("Kontaktok lekérése kérés érkezett.")
-            let contactList = ContactListPayload(contacts: [
-                Contact(name: "Papp Zoltán", numbers: ["+36301234567"]),
-                Contact(name: "Teszt Elek", numbers: ["+36209876543"])
-            ])
-            let response = BLEMessage<ContactListPayload>(
-                id: genericMessage.id,
-                type: .response,
-                action: "contacts",
-                payload: contactList
-            )
-            sendResponseToMac(response)
+            ContactHelper.fetchContacts { contacts in
+                let contactList = ContactListPayload(contacts: contacts)
+                let response = BLEMessage<ContactListPayload>(
+                    id: genericMessage.id,
+                    type: .response,
+                    action: "contacts",
+                    payload: contactList
+                )
+                self.sendResponseToMac(response)
+            }
         default:
             addLog("Ismeretlen parancs: \(genericMessage.action)")
             sendResponse(id: genericMessage.id, action: "status", status: .error, code: 404, message: "Unknown action")
