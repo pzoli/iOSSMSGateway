@@ -9,8 +9,9 @@ import Foundation
 import Combine
 import CoreBluetooth
 import UIKit
+import MessageUI
 
-public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDelegate {
+public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDelegate, MFMessageComposeViewControllerDelegate {
     static let shared = BLEGatewayServer()
     @Published public var isAdvertising = false
     @Published public var pendingMessages: [BLEMessage<SendSmsPayload>] = []
@@ -86,6 +87,21 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
         sendPendingChunks()
     }
 
+    public func messageComposeViewController(_ controller: MFMessageComposeViewController, didFinishWith result: MessageComposeResult) {
+            controller.dismiss(animated: true) {
+                switch result {
+                case .sent:
+                    self.addLog("SMS sikeresen elküldve.")
+                case .cancelled:
+                    self.addLog("SMS küldés megszakítva.")
+                case .failed:
+                    self.addLog("SMS küldés sikertelen.")
+                @unknown default:
+                    break
+                }
+            }
+        }
+    
     public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         switch peripheral.state {
         case .poweredOn:
@@ -135,11 +151,42 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
         case "send_sms":
             do {
                 let message = try BLECodec.decode(data, as: BLEMessage<SendSmsPayload>.self)
+                let phone = message.payload?.phone ?? ""
+                let bodyText = message.payload?.text ?? ""
+
                 DispatchQueue.main.async {
                     self.pendingMessages.append(message)
-                    self.addLog("SMS kérés érkezett BLE-n: \(message.payload?.phone)")
+                    self.addLog("SMS kérés érkezett BLE-n: \(phone)")
+
+                    if MFMessageComposeViewController.canSendText() {
+                        let composeVC = MFMessageComposeViewController()
+                        composeVC.recipients = [phone]
+                        composeVC.body = bodyText
+                        composeVC.messageComposeDelegate = self
+
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                            var topVC = rootVC
+                            while let presented = topVC.presentedViewController {
+                                topVC = presented
+                            }
+                            topVC.present(composeVC, animated: true)
+                        }
+                        self.sendResponse(id: message.id, action: "status", status: .ok, code: 200, message: "queued")
+                    } else if let encodedBody = bodyText.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                              let url = URL(string: "sms:\(phone)&body=\(encodedBody)"),
+                              UIApplication.shared.canOpenURL(url) {
+                        UIApplication.shared.open(url, options: [:]) { success in
+                            if success {
+                                self.sendResponse(id: message.id, action: "status", status: .ok, code: 200, message: "Opened Messages app")
+                            } else {
+                                self.sendResponse(id: message.id, action: "status", status: .error, code: 500, message: "Failed to open Messages app")
+                            }
+                        }
+                    } else {
+                        self.sendResponse(id: message.id, action: "status", status: .error, code: 500, message: "SMS not supported on this device")
+                    }
                 }
-                sendResponse(id: message.id, action: "status", status: .ok, code: 200, message: "queued")
             } catch {
                 addLog("Nem sikerült dekódolni a send_sms payload-ot.")
                 sendResponse(id: genericMessage.id, action: "status", status: .error, code: 400, message: "Invalid payload")
@@ -234,3 +281,4 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
         }
     }
 }
+
