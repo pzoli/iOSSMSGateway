@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    var bleManager = BLEGatewayServer.shared
+    @StateObject  var bleManager = BLEGatewayServer.shared
     @State private var isShowingScanner = false
     
     var body: some View {
@@ -87,4 +87,8 @@ struct ContentView: View {
             .navigationTitle("Szerver")
         }
     }
+}
+
+#Preview {
+    ContentView()
 }

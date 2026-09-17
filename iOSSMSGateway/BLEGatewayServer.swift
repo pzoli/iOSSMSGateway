@@ -11,14 +11,14 @@ import CoreBluetooth
 import UIKit
 import MessageUI
 
-public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDelegate, MFMessageComposeViewControllerDelegate {
+final class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDelegate, MFMessageComposeViewControllerDelegate {
     static let shared = BLEGatewayServer()
     @Published public var isAdvertising = false
     @Published public var pendingMessages: [BLEMessage<SendSmsPayload>] = []
     @Published public var logs: [String] = []
-    @Published var statusMessage = "Inicializálás..."
-    @Published var receivedData: String = ""
-    @Published var keypass: String = ""
+    @Published public var statusMessage = "Inicializálás..."
+    @Published public var receivedData: String = ""
+    @Published public var keypass: String = ""
 
     private var peripheralManager: CBPeripheralManager!
     private var txCharacteristic: CBMutableCharacteristic?
@@ -273,6 +273,7 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
     }
 
     private func addLog(_ message: String) {
+        statusMessage = message
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         let timestamp = formatter.string(from: Date())
