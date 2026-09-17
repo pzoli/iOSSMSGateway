@@ -11,13 +11,18 @@ import CoreBluetooth
 import UIKit
 
 public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDelegate {
+    static let shared = BLEGatewayServer()
     @Published public var isAdvertising = false
     @Published public var pendingMessages: [BLEMessage<SendSmsPayload>] = []
     @Published public var logs: [String] = []
+    @Published var statusMessage = "Inicializálás..."
+    @Published var receivedData: String = ""
+    @Published var keypass: String = ""
 
     private var peripheralManager: CBPeripheralManager!
     private var txCharacteristic: CBMutableCharacteristic?
     private let rxFramer = BLEFramer()
+    private var pendingTxChunks: [Data] = []
 
     public override init() {
         super.init()
@@ -77,6 +82,10 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
 
     // MARK: - CBPeripheralManagerDelegate
 
+    public func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        sendPendingChunks()
+    }
+
     public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
         switch peripheral.state {
         case .poweredOn:
@@ -113,13 +122,22 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
             return
         }
 
+        // keypass verification if keypass is set
+        if !keypass.isEmpty && genericMessage.keypass != keypass {
+            DispatchQueue.main.async {
+                self.receivedData = "Biztonsági hiba:\nÉrvénytelen kulcs (keypass) érkezett."
+            }
+            sendResponse(id: genericMessage.id, action: "status", status: .error, code: 401, message: "Unauthorized: Invalid keypass")
+            return
+        }
+
         switch genericMessage.action {
         case "send_sms":
             do {
                 let message = try BLECodec.decode(data, as: BLEMessage<SendSmsPayload>.self)
                 DispatchQueue.main.async {
                     self.pendingMessages.append(message)
-                    self.addLog("SMS kérés érkezett BLE-n: \(message.payload.phone)")
+                    self.addLog("SMS kérés érkezett BLE-n: \(message.payload?.phone)")
                 }
                 sendResponse(id: message.id, action: "status", status: .ok, code: 200, message: "queued")
             } catch {
@@ -129,10 +147,10 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
         case "make_call":
             do {
                 let message = try BLECodec.decode(data, as: BLEMessage<SendSmsPayload>.self)
-                let phoneNumber = message.payload.phone.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                let phoneNumber = message.payload?.phone.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                 if let url = URL(string: "telprompt://\(phoneNumber)") {
                     DispatchQueue.main.async {
-                        self.addLog("Hívás indítása BLE-n: \(message.payload.phone)")
+                        self.addLog("Hívás indítása BLE-n: \(message.payload?.phone)")
                         UIApplication.shared.open(url, options: [:], completionHandler: { success in
                             if success {
                                 self.sendResponse(id: message.id, action: "status", status: .ok, code: 200, message: "Dialing")
@@ -155,7 +173,7 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
                 let response = BLEMessage<ContactListPayload>(
                     id: genericMessage.id,
                     type: .response,
-                    action: "contacts",
+                    action: "contacts_list",
                     payload: contactList
                 )
                 self.sendResponseToMac(response)
@@ -167,15 +185,29 @@ public class BLEGatewayServer: NSObject, ObservableObject, CBPeripheralManagerDe
     }
 
     public func sendResponseToMac<T: Codable>(_ message: BLEMessage<T>) {
-        guard let txChar = txCharacteristic else { return }
         do {
             let data = try BLECodec.encode(message)
             let chunks = BLEFramer().frame(data)
-            for chunk in chunks {
-                peripheralManager.updateValue(chunk, for: txChar, onSubscribedCentrals: nil)
-            }
+            pendingTxChunks.append(contentsOf: chunks)
+            sendPendingChunks()
         } catch {
             addLog("Sikertelen kódolás a válasz küldésekor: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendPendingChunks() {
+        guard let txChar = txCharacteristic else { return }
+        
+        while !pendingTxChunks.isEmpty {
+            let chunk = pendingTxChunks[0]
+            let success = peripheralManager.updateValue(chunk, for: txChar, onSubscribedCentrals: nil)
+            
+            if success {
+                pendingTxChunks.removeFirst()
+            } else {
+                // A puffer megtelt, várunk a peripheralManagerIsReady(toUpdateSubscribers:) hívásra
+                break
+            }
         }
     }
 

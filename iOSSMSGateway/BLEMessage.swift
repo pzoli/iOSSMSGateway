@@ -32,7 +32,7 @@ public struct BLEMessage<T: Codable>: Codable {
     public let id: Int64
     public let type: MessageType
     public let action: String
-    public let payload: T
+    public let payload: T?
     public let status: Status?
     public let error: BLEError?
     public let keypass: String?

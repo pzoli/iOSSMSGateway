@@ -3,13 +3,21 @@
 <plist version="1.0">
 <dict>
 	<key>BuildLocationStyle</key>
-	<string>UseAppPreferences</string>
+	<string>CustomLocation</string>
 	<key>CompilationCachingSetting</key>
 	<string>Default</string>
+	<key>CustomBuildIntermediatesPath</key>
+	<string>Build/Intermediates.noindex</string>
 	<key>CustomBuildLocationType</key>
-	<string>RelativeToDerivedData</string>
+	<string>RelativeToWorkspace</string>
+	<key>CustomBuildProductsPath</key>
+	<string>Build/Products</string>
+	<key>DerivedDataCustomLocation</key>
+	<string>/Users/pzoli/Library/Developer/Xcode/DerivedData</string>
 	<key>DerivedDataLocationStyle</key>
-	<string>Default</string>
+	<string>AbsolutePath</string>
+	<key>SharedBuildFolderName</key>
+	<string>Build</string>
 	<key>ShowSharedSchemesAutomaticallyEnabled</key>
 	<true/>
 </dict>

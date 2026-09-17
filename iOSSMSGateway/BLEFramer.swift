@@ -29,7 +29,13 @@ public class BLEFramer {
     }
 
     /// Kimenő üzenet felkészítése: soremelés (0x0A) hozzáfűzése és darabolás (chunking)
+    /// - Parameters:
+    ///   - data: A küldendő adatok
+    ///   - maxChunkSize: A maximális darabméret bájtban (pl. `central.maximumUpdateValueLength`)
+    /// - Returns: A darabolt adatcsomagok tömbje
     public func frame(_ data: Data, maxChunkSize: Int = 180) -> [Data] {
+        guard maxChunkSize > 0 else { return [] }
+
         var framedData = data
         if framedData.last != 0x0A {
             framedData.append(0x0A) // 0x0A (LF) lezáró bájt hozzáadása

@@ -8,11 +8,12 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var bleManager = BLEServerManager()
-
+    var bleManager = BLEGatewayServer.shared
+    @State private var isShowingScanner = false
+    
     var body: some View {
         NavigationView {
-            VStack(spacing: 25) {
+            VStack(spacing: 20) {
                 VStack(spacing: 8) {
                     Text("BLE SMS Gateway Szerver")
                         .font(.title2)
@@ -22,7 +23,32 @@ struct ContentView: View {
                         .font(.subheadline)
                         .foregroundColor(.gray)
                 }
-
+                
+                Text("Keypass: \(bleManager.keypass)")
+                    .font(.headline)
+                
+                Button(action: {
+                    isShowingScanner = true
+                }) {
+                    Label("QR kód beolvasása", systemImage: "qrcode.viewfinder")
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                }
+                .sheet(isPresented: $isShowingScanner) {
+                    QRCodeScannerView { result in
+                        switch result {
+                        case .success(let code):
+                            bleManager.keypass = code
+                            isShowingScanner = false
+                        case .failure(let error):
+                            print("Szkennelési hiba: \(error)")
+                            isShowingScanner = false
+                        }
+                    }
+                }
+                
                 Button(action: {
                     if bleManager.isAdvertising {
                         bleManager.stopAdvertising()
@@ -39,7 +65,7 @@ struct ContentView: View {
                         .cornerRadius(12)
                 }
                 .padding(.horizontal)
-
+                
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Utoljára fogadott üzenet/adat:")
                         .font(.headline)
@@ -54,15 +80,11 @@ struct ContentView: View {
                     .frame(maxHeight: 200)
                 }
                 .padding(.horizontal)
-
+                
                 Spacer()
             }
             .padding(.top)
             .navigationTitle("Szerver")
         }
     }
-}
-
-#Preview {
-    ContentView()
 }

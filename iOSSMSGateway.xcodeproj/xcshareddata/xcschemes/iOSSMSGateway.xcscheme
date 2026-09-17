@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "2660"
-   version = "1.7">
+   LastUpgradeVersion = "2700"
+   version = "2.2">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
@@ -20,6 +20,15 @@
                BlueprintName = "iOSSMSGateway"
                ReferencedContainer = "container:iOSSMSGateway.xcodeproj">
             </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <AutocreatedTestPlanReference>
+            </AutocreatedTestPlanReference>
          </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
@@ -47,7 +56,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "116ADCB53052AD9500738482"
             BuildableName = "iOSSMSGateway.app"
-            BlueprintName = "iOSSMSGateway"
             ReferencedContainer = "container:iOSSMSGateway.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
