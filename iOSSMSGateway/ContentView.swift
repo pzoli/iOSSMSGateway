@@ -48,7 +48,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                
+                /*
                 Button(action: {
                     if bleManager.isAdvertising {
                         bleManager.stopAdvertising()
@@ -65,7 +65,7 @@ struct ContentView: View {
                         .cornerRadius(12)
                 }
                 .padding(.horizontal)
-                
+                */
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Utoljára fogadott üzenet/adat:")
                         .font(.headline)
